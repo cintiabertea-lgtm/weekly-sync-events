@@ -327,6 +327,33 @@ def toggle_action_item(item_id):
     return jsonify(build_state(current_week_start()))
 
 
+@app.route("/api/cleanup", methods=["POST"])
+def cleanup():
+    """Reset the current week for fresh topic collection (post-meeting).
+    Clears topics, forecast, and extra notes; deletes COMPLETED action items
+    but keeps unchecked ones. Past weeks are untouched (still archived)."""
+    week = current_week_start()
+    db = get_db()
+    ensure_week(db, week)
+    topics_removed = query(
+        db, f"SELECT COUNT(*) AS n FROM topics WHERE week_start = {PH}", (week,)
+    )[0]["n"]
+    db.execute(f"DELETE FROM topics WHERE week_start = {PH}", (week,))
+    db.execute(f"DELETE FROM action_items WHERE week_start = {PH} AND done = 1", (week,))
+    db.execute(
+        f"UPDATE weeks SET forecast = '', extra_notes = '', finalized_at = NULL "
+        f"WHERE week_start = {PH}",
+        (week,),
+    )
+    db.commit()
+    kept = query(
+        db, f"SELECT COUNT(*) AS n FROM action_items WHERE week_start = {PH}", (week,)
+    )[0]["n"]
+    return jsonify({"ok": True, "week": week,
+                    "topics_removed": topics_removed,
+                    "open_action_items_kept": kept})
+
+
 @app.route("/api/finalize", methods=["POST"])
 def finalize():
     """Mark the current week's agenda as organized/ready (used by the Monday job)."""
