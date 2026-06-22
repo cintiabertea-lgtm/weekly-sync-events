@@ -2,3 +2,4 @@ weekly_sync.db
 __pycache__/
 *.pyc
 .venv/
+cleanup.log
