@@ -205,6 +205,12 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/health")
+def health():
+    """Reports which storage backend is active (no secrets exposed)."""
+    return jsonify({"ok": True, "backend": "postgres" if IS_PG else "sqlite"})
+
+
 @app.route("/api/state")
 def api_state():
     week = request.args.get("week") or current_week_start()
