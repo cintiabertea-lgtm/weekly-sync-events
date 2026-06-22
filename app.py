@@ -137,15 +137,42 @@ def init_db():
 
 def ensure_week(db, week_start):
     if IS_PG:
-        db.execute(
+        cur = db.execute(
             f"INSERT INTO weeks (week_start) VALUES ({PH}) ON CONFLICT (week_start) DO NOTHING",
             (week_start,),
         )
     else:
-        db.execute(
+        cur = db.execute(
             f"INSERT OR IGNORE INTO weeks (week_start) VALUES ({PH})", (week_start,)
         )
+    # When this is the first time the *current* week is created, roll any
+    # still-unchecked action items forward from the most recent prior week.
+    if cur.rowcount == 1 and week_start == current_week_start():
+        carry_over_action_items(db, week_start)
     db.commit()
+
+
+def carry_over_action_items(db, new_week):
+    prev = query(
+        db,
+        f"SELECT week_start FROM action_items WHERE week_start < {PH} "
+        f"ORDER BY week_start DESC LIMIT 1",
+        (new_week,),
+    )
+    if not prev:
+        return
+    pending = query(
+        db,
+        f"SELECT text FROM action_items WHERE week_start = {PH} AND done = 0 "
+        f"ORDER BY created_at",
+        (prev[0]["week_start"],),
+    )
+    for item in pending:
+        db.execute(
+            f"INSERT INTO action_items (week_start, text, done, created_at) "
+            f"VALUES ({PH}, {PH}, 0, {PH})",
+            (new_week, item["text"], now_local().isoformat()),
+        )
 
 
 def query(db, sql, params=()):
