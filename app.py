@@ -5,6 +5,10 @@ A small hosted web app where the team inputs topics for the weekly sync,
 and the forecast (from daily_tasks.py) + extra notes get assembled for
 Monday's meeting.
 
+Storage:
+  - If DATABASE_URL is set (e.g. on Render), uses PostgreSQL — data persists.
+  - Otherwise falls back to a local SQLite file (good for running via the .bat).
+
 Run locally:
     pip install -r requirements.txt
     python app.py
@@ -14,8 +18,6 @@ The app organizes everything by "week" (Monday-based, in CET).
 """
 
 import os
-import sqlite3
-from contextlib import closing
 from datetime import datetime, timedelta, date
 
 try:
@@ -27,11 +29,27 @@ except Exception:  # pragma: no cover
 from flask import Flask, g, jsonify, render_template, request
 
 # ---------------------------------------------------------------------------
-# Config
+# Config / storage backend selection
 # ---------------------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("WEEKLY_SYNC_DB", os.path.join(BASE_DIR, "weekly_sync.db"))
 PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2, "": 3}
+
+# Render hands us a postgres URL; normalize the old postgres:// scheme.
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+IS_PG = bool(DATABASE_URL)
+
+if IS_PG:
+    import psycopg
+    from psycopg.rows import dict_row
+    PH = "%s"                         # Postgres parameter placeholder
+    AUTO_ID = "id SERIAL PRIMARY KEY"
+else:
+    import sqlite3
+    PH = "?"                          # SQLite parameter placeholder
+    AUTO_ID = "id INTEGER PRIMARY KEY AUTOINCREMENT"
 
 app = Flask(__name__)
 
@@ -57,13 +75,20 @@ def week_label(week_start_iso):
 
 
 # ---------------------------------------------------------------------------
-# Database
+# Database (works against Postgres or SQLite)
 # ---------------------------------------------------------------------------
+def connect():
+    if IS_PG:
+        return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    con = sqlite3.connect(DB_PATH)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON")
+    return con
+
+
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
+        g.db = connect()
     return g.db
 
 
@@ -74,42 +99,59 @@ def close_db(exc):
         db.close()
 
 
+SCHEMA = [
+    f"""CREATE TABLE IF NOT EXISTS topics (
+            {AUTO_ID},
+            week_start  TEXT NOT NULL,
+            who         TEXT NOT NULL,
+            topic       TEXT NOT NULL,
+            context     TEXT DEFAULT '',
+            priority    TEXT DEFAULT '',
+            created_at  TEXT NOT NULL
+        )""",
+    """CREATE TABLE IF NOT EXISTS weeks (
+            week_start   TEXT PRIMARY KEY,
+            forecast     TEXT DEFAULT '',
+            extra_notes  TEXT DEFAULT '',
+            finalized_at TEXT
+        )""",
+    f"""CREATE TABLE IF NOT EXISTS action_items (
+            {AUTO_ID},
+            week_start  TEXT NOT NULL,
+            text        TEXT NOT NULL,
+            done        INTEGER DEFAULT 0,
+            created_at  TEXT NOT NULL
+        )""",
+]
+
+
 def init_db():
-    with closing(sqlite3.connect(DB_PATH)) as db:
-        db.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS topics (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                week_start  TEXT NOT NULL,
-                who         TEXT NOT NULL,
-                topic       TEXT NOT NULL,
-                context     TEXT DEFAULT '',
-                priority    TEXT DEFAULT '',
-                created_at  TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS weeks (
-                week_start   TEXT PRIMARY KEY,
-                forecast     TEXT DEFAULT '',
-                extra_notes  TEXT DEFAULT '',
-                finalized_at TEXT
-            );
-            CREATE TABLE IF NOT EXISTS action_items (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                week_start  TEXT NOT NULL,
-                text        TEXT NOT NULL,
-                done        INTEGER DEFAULT 0,
-                created_at  TEXT NOT NULL
-            );
-            """
-        )
-        db.commit()
+    con = connect()
+    try:
+        for stmt in SCHEMA:
+            con.execute(stmt)
+        con.commit()
+    finally:
+        con.close()
 
 
 def ensure_week(db, week_start):
-    db.execute(
-        "INSERT OR IGNORE INTO weeks (week_start) VALUES (?)", (week_start,)
-    )
+    if IS_PG:
+        db.execute(
+            f"INSERT INTO weeks (week_start) VALUES ({PH}) ON CONFLICT (week_start) DO NOTHING",
+            (week_start,),
+        )
+    else:
+        db.execute(
+            f"INSERT OR IGNORE INTO weeks (week_start) VALUES ({PH})", (week_start,)
+        )
     db.commit()
+
+
+def query(db, sql, params=()):
+    """Run a SELECT and return a list of dict rows (dialect-agnostic)."""
+    cur = db.execute(sql, params)
+    return [dict(r) for r in cur.fetchall()]
 
 
 # ---------------------------------------------------------------------------
@@ -119,25 +161,26 @@ def build_state(week_start):
     db = get_db()
     ensure_week(db, week_start)
 
-    topics = [dict(r) for r in db.execute(
-        "SELECT * FROM topics WHERE week_start = ? ORDER BY created_at", (week_start,)
-    )]
+    topics = query(
+        db, f"SELECT * FROM topics WHERE week_start = {PH} ORDER BY created_at",
+        (week_start,),
+    )
     topics.sort(key=lambda t: (PRIORITY_ORDER.get(t["priority"], 3), t["created_at"]))
 
-    week_row = db.execute(
-        "SELECT * FROM weeks WHERE week_start = ?", (week_start,)
-    ).fetchone()
+    week_rows = query(db, f"SELECT * FROM weeks WHERE week_start = {PH}", (week_start,))
+    week_row = week_rows[0] if week_rows else None
 
-    items = [dict(r) for r in db.execute(
-        "SELECT * FROM action_items WHERE week_start = ? ORDER BY done, created_at",
+    items = query(
+        db,
+        f"SELECT * FROM action_items WHERE week_start = {PH} ORDER BY done, created_at",
         (week_start,),
-    )]
+    )
 
-    # list of recent weeks for the archive dropdown
-    weeks = [r["week_start"] for r in db.execute(
+    weeks = [r["week_start"] for r in query(
+        db,
         "SELECT DISTINCT week_start FROM "
         "(SELECT week_start FROM topics UNION SELECT week_start FROM weeks "
-        " UNION SELECT week_start FROM action_items) ORDER BY week_start DESC"
+        " UNION SELECT week_start FROM action_items) AS w ORDER BY week_start DESC",
     )]
 
     return {
@@ -182,8 +225,8 @@ def add_topic():
     db = get_db()
     ensure_week(db, week)
     db.execute(
-        "INSERT INTO topics (week_start, who, topic, context, priority, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        f"INSERT INTO topics (week_start, who, topic, context, priority, created_at) "
+        f"VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH})",
         (week, who, topic, (data.get("context") or "").strip(), priority,
          now_local().isoformat()),
     )
@@ -194,7 +237,7 @@ def add_topic():
 @app.route("/api/topics/<int:topic_id>", methods=["DELETE"])
 def delete_topic(topic_id):
     db = get_db()
-    db.execute("DELETE FROM topics WHERE id = ?", (topic_id,))
+    db.execute(f"DELETE FROM topics WHERE id = {PH}", (topic_id,))
     db.commit()
     return jsonify(build_state(current_week_start()))
 
@@ -208,14 +251,14 @@ def update_week():
     ensure_week(db, week)
     fields, values = [], []
     if "forecast" in data:
-        fields.append("forecast = ?")
+        fields.append(f"forecast = {PH}")
         values.append(data["forecast"])
     if "extra_notes" in data:
-        fields.append("extra_notes = ?")
+        fields.append(f"extra_notes = {PH}")
         values.append(data["extra_notes"])
     if fields:
         values.append(week)
-        db.execute(f"UPDATE weeks SET {', '.join(fields)} WHERE week_start = ?", values)
+        db.execute(f"UPDATE weeks SET {', '.join(fields)} WHERE week_start = {PH}", values)
         db.commit()
     return jsonify(build_state(week))
 
@@ -230,7 +273,8 @@ def add_action_item():
     db = get_db()
     ensure_week(db, week)
     db.execute(
-        "INSERT INTO action_items (week_start, text, done, created_at) VALUES (?, ?, 0, ?)",
+        f"INSERT INTO action_items (week_start, text, done, created_at) "
+        f"VALUES ({PH}, {PH}, 0, {PH})",
         (week, text, now_local().isoformat()),
     )
     db.commit()
@@ -242,9 +286,9 @@ def toggle_action_item(item_id):
     data = request.get_json(force=True)
     db = get_db()
     if data.get("delete"):
-        db.execute("DELETE FROM action_items WHERE id = ?", (item_id,))
+        db.execute(f"DELETE FROM action_items WHERE id = {PH}", (item_id,))
     else:
-        db.execute("UPDATE action_items SET done = ? WHERE id = ?",
+        db.execute(f"UPDATE action_items SET done = {PH} WHERE id = {PH}",
                    (1 if data.get("done") else 0, item_id))
     db.commit()
     return jsonify(build_state(current_week_start()))
@@ -256,7 +300,7 @@ def finalize():
     week = current_week_start()
     db = get_db()
     ensure_week(db, week)
-    db.execute("UPDATE weeks SET finalized_at = ? WHERE week_start = ?",
+    db.execute(f"UPDATE weeks SET finalized_at = {PH} WHERE week_start = {PH}",
                (now_local().isoformat(), week))
     db.commit()
     state = build_state(week)

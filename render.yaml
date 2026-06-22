@@ -1,3 +1,9 @@
+databases:
+  - name: weekly-sync-db
+    plan: free
+    databaseName: weekly_sync
+    user: weekly_sync
+
 services:
   - type: web
     name: weekly-sync-events
@@ -8,3 +14,7 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.4"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: weekly-sync-db
+          property: connectionString
