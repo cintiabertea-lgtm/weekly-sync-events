@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weekly Sync — Events Team</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;700;800&display=swap');
+  :root {
+    --bg: #12313A; --panel: #173D49; --panel-2: #1B4656; --line: #2A6577;
+    --text: #ffffff; --muted: #9fb8c2;
+    --accent: #F9A943; --accent-dk: #E08E3E; --accent-2: #9BC53D;
+    --high: #E05263; --med: #F9A943; --low: #2DA1C4;
+    --radius: 14px; --shadow: 0 6px 24px rgba(0,0,0,.32);
+    --font-primary: 'Montserrat', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 var(--font-primary);
+  }
+  header {
+    padding: 28px 32px 20px; border-bottom: 3px solid var(--accent);
+    background: linear-gradient(180deg, #1B4656, var(--bg));
+  }
+  header h1 { margin: 0; font-size: 24px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; }
+  .sub { color: var(--muted); margin-top: 6px; font-size: 14px; font-weight: 300; }
+  .weekbar { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
+  .weeklabel { font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px; }
+  .badge { font-size: 11px; padding: 4px 11px; border-radius: 20px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+  .badge.live { background: rgba(155,197,61,.16); color: var(--accent-2); }
+  .badge.ready { background: rgba(249,169,67,.18); color: var(--accent); }
+  select, input, textarea {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 9px; padding: 9px 11px; font: inherit; outline: none;
+  }
+  select:focus, input:focus, textarea:focus { border-color: var(--accent); }
+  main { padding: 24px 32px 60px; max-width: 1180px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 22px; }
+  @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); margin-bottom: 22px;
+  }
+  .card h2 { margin: 0 0 14px; font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .8px; color: var(--accent); }
+  .btn {
+    background: var(--accent); color: #12313A; border: none; border-radius: 9px;
+    padding: 9px 16px; font: inherit; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: .4px; font-size: 13px;
+  }
+  .btn:hover { background: var(--accent-dk); }
+  .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .topic-form { display: grid; grid-template-columns: 140px 1fr 130px; gap: 10px; }
+  .topic-form .full { grid-column: 1 / -1; }
+  @media (max-width: 560px) { .topic-form { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .pri { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 12px; white-space: nowrap; }
+  .pri.High { background: rgba(255,107,107,.16); color: var(--high); }
+  .pri.Medium { background: rgba(255,200,87,.16); color: var(--med); }
+  .pri.Low { background: rgba(127,176,255,.16); color: var(--low); }
+  .who { font-weight: 600; }
+  .ctx { color: var(--muted); font-size: 13px; }
+  .x { color: var(--muted); cursor: pointer; border: none; background: none; font-size: 16px; }
+  .x:hover { color: var(--high); }
+  .empty { color: var(--muted); font-style: italic; padding: 14px 0; }
+  textarea.mono { width: 100%; min-height: 150px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; resize: vertical; }
+  textarea.notes { width: 100%; min-height: 110px; resize: vertical; }
+  pre.forecast { background: #0c111b; border: 1px solid var(--line); border-radius: 10px; padding: 14px; overflow:auto; font-size: 12.5px; white-space: pre; }
+  .ai { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
+  .ai input[type=checkbox] { width: 17px; height: 17px; }
+  .ai.done span { text-decoration: line-through; color: var(--muted); }
+  .ai span { flex: 1; }
+  .save-hint { color: var(--accent-2); font-size: 12px; opacity: 0; transition: opacity .3s; }
+  .save-hint.show { opacity: 1; }
+  .foot { color: var(--muted); font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="errbar" style="display:none; position:sticky; top:0; z-index:50; background:#9B1E1E; color:#fff; padding:12px 20px; font-size:14px; font-weight:600;"></div>
+<header>
+  <h1>📅 Weekly Sync — Events Team</h1>
+  <div class="sub">Drop in topics anytime during the week. Everything is organized for Monday 12:00 CET.</div>
+  <div class="weekbar">
+    <span class="weeklabel" id="weekLabel">—</span>
+    <span id="statusBadge"></span>
+    <select id="weekPicker" title="View another week"></select>
+  </div>
+</header>
+
+<main>
+  <div class="grid">
+    <!-- LEFT -->
+    <div>
+      <div class="card">
+        <h2>🗣️ Add a discussion topic</h2>
+        <div class="topic-form">
+          <input id="who" placeholder="Your name" autocomplete="name">
+          <input id="topic" placeholder="Topic to discuss">
+          <select id="priority">
+            <option value="">Priority…</option>
+            <option>High</option><option>Medium</option><option>Low</option>
+          </select>
+          <input class="full" id="context" placeholder="Context / notes (optional)">
+          <div class="full row">
+            <button class="btn" id="addTopic">Add topic</button>
+            <span class="save-hint" id="topicHint">Added ✓</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>🗣️ This week's topics</h2>
+        <table>
+          <thead><tr><th>Who</th><th>Topic</th><th>Priority</th><th></th></tr></thead>
+          <tbody id="topicsBody"></tbody>
+        </table>
+        <div class="empty" id="topicsEmpty" style="display:none">No topics submitted yet this week.</div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div>
+      <div class="card">
+        <h2>📊 This week's forecast <span style="text-transform:none;color:var(--muted)">(from daily_tasks.py)</span></h2>
+        <pre class="forecast" id="forecastView" style="display:none"></pre>
+        <textarea class="mono" id="forecastEdit" placeholder="Paste the daily_tasks.py weekly forecast output here…"></textarea>
+        <div class="row" style="margin-top:10px">
+          <button class="btn" id="saveForecast">Save forecast</button>
+          <button class="btn ghost" id="editForecast" style="display:none">Edit</button>
+          <span class="save-hint" id="forecastHint">Saved ✓</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>📝 Extra notes from Cintia</h2>
+        <textarea class="notes" id="notes" placeholder="Blockers, priorities, heads-ups worth mentioning…"></textarea>
+        <div class="row" style="margin-top:10px">
+          <button class="btn" id="saveNotes">Save notes</button>
+          <span class="save-hint" id="notesHint">Saved ✓</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>✅ Action items & decisions</h2>
+        <div id="aiList"></div>
+        <div class="row" style="margin-top:10px">
+          <input id="aiText" placeholder="New action item…" style="flex:1">
+          <button class="btn" id="addAi">Add</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot" id="foot"></div>
+  <div class="foot" style="margin-top:18px; border-top:1px solid var(--line); padding-top:14px; font-weight:300;">
+    Proprietary to Delve Risk · © 2026 Delve Risk. All rights reserved. CYBE^R® is a registered trademark of Delve Risk.
+    The “Dig” icon and Field Marketing Enablement™ are trademarks of Delve Risk.
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let state = null;
+
+async function api(path, opts) {
+  try {
+    const r = await fetch(path, opts);
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.error || ('Server returned ' + r.status));
+    }
+    hideError();
+    return await r.json();
+  } catch (err) {
+    showError('Couldn’t save — the page can’t reach the server. Make sure "Start Weekly Sync" is still running (or the site is awake), then try again. [' + err.message + ']');
+    throw err;
+  }
+}
+function showError(msg) { const b = $('#errbar'); b.textContent = msg; b.style.display = 'block'; }
+function hideError() { $('#errbar').style.display = 'none'; }
+function flash(el) { el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 1500); }
+
+async function load(week) {
+  const q = week ? ('?week=' + encodeURIComponent(week)) : '';
+  state = await api('/api/state' + q);
+  render();
+}
+
+function render() {
+  $('#weekLabel').textContent = state.week_label;
+  const badge = $('#statusBadge');
+  if (state.finalized_at) badge.innerHTML = '<span class="badge ready">Organized & ready</span>';
+  else if (state.is_current) badge.innerHTML = '<span class="badge live">Collecting topics</span>';
+  else badge.innerHTML = '';
+
+  // week picker
+  const wp = $('#weekPicker');
+  wp.innerHTML = '';
+  state.weeks.forEach(w => {
+    const o = document.createElement('option');
+    o.value = w; o.textContent = w === state.week_start ? '● ' + w : w;
+    if (w === state.week_start) o.selected = true;
+    wp.appendChild(o);
+  });
+
+  const editable = state.is_current;
+
+  // topics
+  const body = $('#topicsBody'); body.innerHTML = '';
+  state.topics.forEach(t => {
+    const tr = document.createElement('tr');
+    const pri = t.priority ? `<span class="pri ${t.priority}">${t.priority}</span>` : '<span class="ctx">—</span>';
+    const ctx = t.context ? `<div class="ctx">${escapeHtml(t.context)}</div>` : '';
+    tr.innerHTML = `<td class="who">${escapeHtml(t.who)}</td>
+      <td>${escapeHtml(t.topic)}${ctx}</td><td>${pri}</td>
+      <td>${editable ? `<button class="x" data-id="${t.id}" title="Remove">✕</button>` : ''}</td>`;
+    body.appendChild(tr);
+  });
+  $('#topicsEmpty').style.display = state.topics.length ? 'none' : 'block';
+  body.querySelectorAll('.x').forEach(b => b.onclick = async () => {
+    state = await api('/api/topics/' + b.dataset.id, {method: 'DELETE'}); render();
+  });
+
+  // forecast
+  const fv = $('#forecastView'), fe = $('#forecastEdit');
+  if (state.forecast) {
+    fv.style.display = 'block'; fv.textContent = state.forecast;
+    fe.style.display = 'none'; $('#saveForecast').style.display = 'none'; $('#editForecast').style.display = editable ? 'inline-block' : 'none';
+  } else {
+    fv.style.display = 'none';
+    fe.style.display = editable ? 'block' : 'none'; fe.value = '';
+    $('#saveForecast').style.display = editable ? 'inline-block' : 'none'; $('#editForecast').style.display = 'none';
+  }
+
+  // notes
+  $('#notes').value = state.extra_notes || '';
+  $('#notes').disabled = !editable;
+  $('#saveNotes').style.display = editable ? 'inline-block' : 'none';
+
+  // action items
+  const list = $('#aiList'); list.innerHTML = '';
+  if (!state.action_items.length) list.innerHTML = '<div class="empty">No action items yet.</div>';
+  state.action_items.forEach(it => {
+    const div = document.createElement('div');
+    div.className = 'ai' + (it.done ? ' done' : '');
+    div.innerHTML = `<input type="checkbox" ${it.done ? 'checked' : ''}>
+      <span>${escapeHtml(it.text)}</span>
+      <button class="x" title="Remove">✕</button>`;
+    div.querySelector('input').onchange = async e => {
+      state = await api('/api/action-items/' + it.id, {method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({done: e.target.checked})}); render();
+    };
+    div.querySelector('.x').onclick = async () => {
+      state = await api('/api/action-items/' + it.id, {method:'POST',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({delete: true})}); render();
+    };
+    list.appendChild(div);
+  });
+  $('#aiText').disabled = !editable; $('#addAi').disabled = !editable;
+
+  $('#foot').textContent = 'Server time: ' + state.now +
+    (state.finalized_at ? '  ·  Organized ' + state.finalized_at.replace('T',' ').slice(0,16) : '');
+}
+
+function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+// --- events ---
+$('#addTopic').onclick = async () => {
+  const who = $('#who').value.trim(), topic = $('#topic').value.trim();
+  if (!who || !topic) { alert('Name and topic are required.'); return; }
+  localStorage.setItem('syncName', who);
+  state = await api('/api/topics', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({who, topic, context: $('#context').value, priority: $('#priority').value})});
+  $('#topic').value=''; $('#context').value=''; $('#priority').value='';
+  flash($('#topicHint')); render();
+};
+$('#saveForecast').onclick = async () => {
+  state = await api('/api/week', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({forecast: $('#forecastEdit').value})}); flash($('#forecastHint')); render();
+};
+$('#editForecast').onclick = () => {
+  $('#forecastView').style.display='none'; const fe=$('#forecastEdit');
+  fe.style.display='block'; fe.value = state.forecast;
+  $('#saveForecast').style.display='inline-block'; $('#editForecast').style.display='none';
+};
+$('#saveNotes').onclick = async () => {
+  state = await api('/api/week', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({extra_notes: $('#notes').value})}); flash($('#notesHint')); render();
+};
+$('#addAi').onclick = async () => {
+  const text = $('#aiText').value.trim(); if (!text) return;
+  state = await api('/api/action-items', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text})}); $('#aiText').value=''; render();
+};
+$('#weekPicker').onchange = e => load(e.target.value);
+
+// init
+$('#who').value = localStorage.getItem('syncName') || '';
+load();
+</script>
+</body>
+</html>
