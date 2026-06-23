@@ -28,8 +28,19 @@ BASE = os.environ.get("WEEKLY_SYNC_URL", "https://weekly-sync-events.onrender.co
 PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2, "": 3}
 
 
+def _auth_headers():
+    """Read 'user:password' from auth.txt (next to this script) for Basic Auth."""
+    import base64
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "auth.txt")
+    if os.path.exists(p):
+        cred = open(p, encoding="utf-8").read().strip()
+        if cred:
+            return {"Authorization": "Basic " + base64.b64encode(cred.encode()).decode()}
+    return {}
+
+
 def call(path, method="GET"):
-    req = urllib.request.Request(BASE + path, method=method)
+    req = urllib.request.Request(BASE + path, method=method, headers=_auth_headers())
     with urllib.request.urlopen(req, timeout=90) as r:
         return json.loads(r.read().decode("utf-8"))
 

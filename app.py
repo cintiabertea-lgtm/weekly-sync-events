@@ -26,7 +26,8 @@ try:
 except Exception:  # pragma: no cover
     TZ = None
 
-from flask import Flask, g, jsonify, render_template, request
+import secrets
+from flask import Flask, Response, g, jsonify, render_template, request
 
 # ---------------------------------------------------------------------------
 # Config / storage backend selection
@@ -52,6 +53,27 @@ else:
     AUTO_ID = "id INTEGER PRIMARY KEY AUTOINCREMENT"
 
 app = Flask(__name__)
+
+# ---------------------------------------------------------------------------
+# Access control (shared login via HTTP Basic Auth)
+# ---------------------------------------------------------------------------
+# Auth is enforced only when BOTH SYNC_USER and SYNC_PASSWORD are set (they are
+# on Render). Locally (e.g. via the .bat) they're unset, so no prompt appears.
+SYNC_USER = os.environ.get("SYNC_USER")
+SYNC_PASSWORD = os.environ.get("SYNC_PASSWORD")
+AUTH_ENABLED = bool(SYNC_USER and SYNC_PASSWORD)
+
+
+@app.before_request
+def _require_login():
+    if not AUTH_ENABLED:
+        return None
+    a = request.authorization
+    if a and secrets.compare_digest(a.username or "", SYNC_USER) \
+            and secrets.compare_digest(a.password or "", SYNC_PASSWORD):
+        return None
+    return Response("Login required.", 401,
+                    {"WWW-Authenticate": 'Basic realm="Weekly Sync - Events Team"'})
 
 
 # ---------------------------------------------------------------------------
@@ -374,4 +396,4 @@ init_db()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
